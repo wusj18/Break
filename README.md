@@ -1,7 +1,7 @@
 # Break
 Break data and code
 
-##代码
+# 代码
 
 训练入口：seq2seq/finetune.py
 
@@ -15,12 +15,12 @@ inference生成：transformers/generation_utils.py
 
 
 
-##训练
+# 训练
 seq2seq/finetune.sh里面 训练就--do_train 测试就--do_predict
 
 
 
-##数据 （粗粒度break数据 = break high level）
+# 数据 （粗粒度break数据 = break high level）
 
 粗粒度Break基本数据，用于本地评估  dataset/break_high_data_val
 
@@ -32,7 +32,7 @@ seq2seq/finetune.sh里面 训练就--do_train 测试就--do_predict
 
 
 
-##版本
+# 版本
 
 pytorch   1.0.0
 
