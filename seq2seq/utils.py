@@ -23,11 +23,11 @@ from torch.utils.data import Dataset, Sampler
 
 from sentence_splitter import add_newline_to_end_of_each_sentence
 from transformers import EvalPrediction, T5Tokenizer
-sys.path.append("../..")
-from transformers.file_utils import cached_property
-from src.transformers.models.bart.modeling_bart import shift_tokens_right
-from src.transformers.models.bart.tokenization_bart import BartTokenizer
-from src.transformers.tokenization_utils import PreTrainedTokenizer
+sys.path.append("..")
+from transformers_local.file_utils import cached_property
+from transformers_local.models.bart.modeling_bart import shift_tokens_right
+from transformers_local.models.bart.tokenization_bart import BartTokenizer
+from transformers_local.tokenization_utils import PreTrainedTokenizer
 
 
 try:

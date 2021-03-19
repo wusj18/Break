@@ -25,12 +25,12 @@ from evaluation.graph_matcher import GraphMatchScorer, get_ged_plus_scores
 from evaluation.sari_hook import get_sari
 from evaluation.sequence_matcher import SequenceMatchScorer
 from callbacks import Seq2SeqLoggingCallback, get_checkpoint_callback, get_early_stopping_callback
-from src.transformers.models.bart.tokenization_bart import BartTokenizer
-from src.transformers.tokenization_utils import PreTrainedTokenizer
+from transformers_local.models.bart.tokenization_bart import BartTokenizer
+from transformers_local.tokenization_utils import PreTrainedTokenizer
 from transformers import MBartTokenizer, T5ForConditionalGeneration
 sys.path.append("..")
-from transformers.models.bart.modeling_bart import shift_tokens_right
-from transformers.models.bart.modeling_bart import BartForConditionalGeneration, BartForSequenceClassification, PretrainedBartModel
+from transformers_local.models.bart.modeling_bart import shift_tokens_right
+from transformers_local.models.bart.modeling_bart import BartForConditionalGeneration, BartForSequenceClassification, PretrainedBartModel
 from utils import (
     ROUGE_KEYS,
     LegacySeq2SeqDataset,
@@ -87,7 +87,7 @@ class SummarizationModule(BaseTransformer):
         # self.model = PretrainedBartModel.from_pretrained('bart_base')
         # self.cls_model = BartForSequenceClassification.from_pretrained('bart_base')
         use_task_specific_params(self.model, "summarization")
-        save_git_info(self.hparams.output_dir)
+        # save_git_info(self.hparams.output_dir)
         self.metrics_save_path = Path(self.output_dir) / "metrics.json"
         self.hparams_save_path = Path(self.output_dir) / "hparams.pkl"
         pickle_save(self.hparams, self.hparams_save_path)
@@ -121,7 +121,7 @@ class SummarizationModule(BaseTransformer):
             freeze_params(self.model.get_encoder())
             assert_all_frozen(self.model.get_encoder())
 
-        self.hparams.git_sha = get_git_info()["repo_sha"]
+        # self.hparams.git_sha = get_git_info()["repo_sha"]
         self.num_workers = hparams.num_workers
         self.decoder_start_token_id = None  # default to config
         if self.model.config.decoder_start_token_id is None and isinstance(self.tokenizer, MBartTokenizer):
