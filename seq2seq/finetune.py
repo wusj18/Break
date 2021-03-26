@@ -25,12 +25,14 @@ from evaluation.graph_matcher import GraphMatchScorer, get_ged_plus_scores
 from evaluation.sari_hook import get_sari
 from evaluation.sequence_matcher import SequenceMatchScorer
 from callbacks import Seq2SeqLoggingCallback, get_checkpoint_callback, get_early_stopping_callback
-from transformers_local.models.bart.tokenization_bart import BartTokenizer
-from transformers_local.tokenization_utils import PreTrainedTokenizer
+from src.transformers.models.bart.tokenization_bart import BartTokenizer
+from src.transformers.tokenization_utils import PreTrainedTokenizer
 from transformers import MBartTokenizer, T5ForConditionalGeneration
-sys.path.append("..")
-from transformers_local.models.bart.modeling_bart import shift_tokens_right
-from transformers_local.models.bart.modeling_bart import BartForConditionalGeneration, BartForSequenceClassification, PretrainedBartModel
+
+sys.path.append("../..")
+from src.transformers.models.bart.modeling_bart import shift_tokens_right
+from src.transformers.models.bart.modeling_bart import BartForConditionalGeneration, BartForSequenceClassification, \
+    PretrainedBartModel
 from utils import (
     ROUGE_KEYS,
     LegacySeq2SeqDataset,
@@ -51,12 +53,12 @@ from utils import (
     use_task_specific_params,
 )
 
-
 # need the parent dir module
 sys.path.insert(2, str(Path(__file__).resolve().parents[1]))
 from lightning_base import BaseTransformer, add_generic_args, generic_train  # noqa
 
 from warnings import simplefilter
+
 simplefilter(action='ignore', category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -79,15 +81,16 @@ class SummarizationModule(BaseTransformer):
             if hparams.sortish_sampler:
                 raise ValueError("--sortish_sampler and --max_tokens_per_batch may not be used simultaneously")
 
-        tokenizer = BartTokenizer(vocab_file="tokenizer/vocab.json", merges_file="tokenizer/merges.txt", model_max_length=120)
+        tokenizer = BartTokenizer(vocab_file="tokenizer/vocab.json", merges_file="tokenizer/merges.txt",
+                                  model_max_length=120)
         model = BartForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
-        
+
         super().__init__(hparams, num_labels=None, mode=self.mode, model=model, tokenizer=tokenizer, **kwargs)
-        
+
         # self.model = PretrainedBartModel.from_pretrained('bart_base')
         # self.cls_model = BartForSequenceClassification.from_pretrained('bart_base')
         use_task_specific_params(self.model, "summarization")
-        # save_git_info(self.hparams.output_dir)
+        save_git_info(self.hparams.output_dir)
         self.metrics_save_path = Path(self.output_dir) / "metrics.json"
         self.hparams_save_path = Path(self.output_dir) / "hparams.pkl"
         pickle_save(self.hparams, self.hparams_save_path)
@@ -121,7 +124,7 @@ class SummarizationModule(BaseTransformer):
             freeze_params(self.model.get_encoder())
             assert_all_frozen(self.model.get_encoder())
 
-        # self.hparams.git_sha = get_git_info()["repo_sha"]
+        self.hparams.git_sha = get_git_info()["repo_sha"]
         self.num_workers = hparams.num_workers
         self.decoder_start_token_id = None  # default to config
         if self.model.config.decoder_start_token_id is None and isinstance(self.tokenizer, MBartTokenizer):
@@ -141,10 +144,12 @@ class SummarizationModule(BaseTransformer):
     def save_readable_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, List[str]]:
         """A debugging utility"""
         readable_batch = {
-            k: self.tokenizer.batch_decode(v.tolist()) if "mask" not in k else v.shape for k, v in batch.items() if not isinstance(v, list) and k != "copy_labels"
+            k: self.tokenizer.batch_decode(v.tolist()) if "mask" not in k else v.shape for k, v in batch.items() if
+        not isinstance(v, list) and k != "copy_labels"
         }
         save_json(readable_batch, Path(self.output_dir) / "text_batch.json")
-        save_json({k: v.tolist() for k, v in batch.items() if not isinstance(v, list)}, Path(self.output_dir) / "tok_batch.json")
+        save_json({k: v.tolist() for k, v in batch.items() if not isinstance(v, list)},
+                  Path(self.output_dir) / "tok_batch.json")
 
         self.already_saved_batch = True
         return readable_batch
@@ -190,13 +195,21 @@ class SummarizationModule(BaseTransformer):
         def copy_loss(copy_logits, copy_label, copy_loss_mask):
             copy_logits = - torch.log(copy_logits + torch.tensor(0.0000000000001))
             copy_logits = torch.where(torch.isinf(copy_logits), torch.full_like(copy_logits, 0.00), copy_logits)
+            # print(copy_logits.shape)
+            # print(copy_label.shape)
+            # print(copy_label)
+            # # if (np.all(copy_label.cpu().numpy()) == 0):
+            # #     print("copy label is all 0!!")
+            # print("*" * 100)
             mul_res = torch.mul(copy_logits, copy_label)
             mul_res = torch.sum(mul_res, -1)
             mask_loss = torch.mul(mul_res, copy_loss_mask)
             loss = torch.mean(mask_loss)
+            # print(loss)
             return loss
 
-        outputs = self(src_ids, attention_mask=src_mask, dynamic_vocab_mask=src_ids, words_attention_mask=src_mask, decoder_input_ids=decoder_input_ids, use_cache=False, output_attentions=True)
+        outputs = self(src_ids, attention_mask=src_mask, dynamic_vocab_mask=src_ids, words_attention_mask=src_mask,
+                       decoder_input_ids=decoder_input_ids, use_cache=False, output_attentions=True)
         lm_logits = outputs[0]
         cls_logits = outputs["cls_logits"]
         # copy_logits = outputs["copy_logits"]
@@ -232,7 +245,8 @@ class SummarizationModule(BaseTransformer):
             # copy_or_generate_loss = crossentropyloss(copy_or_generate_logits.view(-1, copy_or_generate_logits.shape[-1]), copy_loss_mask.long().view(-1))
         else:
             lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1)
-            loss, nll_loss = label_smoothed_nll_loss(lprobs, tgt_ids, self.hparams.label_smoothing, ignore_index=pad_token_id)
+            loss, nll_loss = label_smoothed_nll_loss(lprobs, tgt_ids, self.hparams.label_smoothing,
+                                                     ignore_index=pad_token_id)
 
         # coverage loss
         # c = torch.sum(lm_logits[:, :-1, :], dim=1, keepdim=False)
@@ -241,7 +255,7 @@ class SummarizationModule(BaseTransformer):
         # total_coverage_loss = torch.sum(coverage_loss, dim=[0, 1])
 
         return (generate_loss, generate_loss, cls_loss, copy_loss, copy_or_generate_loss)
- 
+
     @property
     def pad(self) -> int:
         return self.tokenizer.pad_token_id
@@ -256,7 +270,8 @@ class SummarizationModule(BaseTransformer):
         logs["src_pad_tok"] = batch["input_ids"].eq(self.pad).sum()
         logs["src_pad_frac"] = batch["input_ids"].eq(self.pad).float().mean()
         # TODO(SS): make a wandb summary metric for this
-        return {"loss": loss_tensors[0], "log": logs, "generate_loss": loss_tensors[1], "cls_loss": loss_tensors[2], "copy_loss": loss_tensors[3], "copy_or_generate_loss": loss_tensors[4]}
+        return {"loss": loss_tensors[0], "log": logs, "generate_loss": loss_tensors[1], "cls_loss": loss_tensors[2],
+                "copy_loss": loss_tensors[3], "copy_or_generate_loss": loss_tensors[4]}
 
     def validation_step(self, batch, batch_idx) -> Dict:
         return self._generative_step(batch)
@@ -374,7 +389,7 @@ class SummarizationModule(BaseTransformer):
                 dataset,
                 batch_size=batch_size,
                 collate_fn=dataset.collate_fn,
-                shuffle=False,
+                shuffle=True,
                 num_workers=self.num_workers,
                 sampler=sampler,
             )
@@ -387,9 +402,9 @@ class SummarizationModule(BaseTransformer):
                 dataset,
                 batch_sampler=batch_sampler,
                 collate_fn=dataset.collate_fn,
-                # shuffle=False,
+                shuffle=True,
                 num_workers=self.num_workers,
-                # batch_size=None,
+                batch_size=None,
             )
         else:
             return DataLoader(
@@ -406,10 +421,10 @@ class SummarizationModule(BaseTransformer):
         return dataloader
 
     def val_dataloader(self) -> DataLoader:
-        return self.get_dataloader("val", batch_size=self.hparams.eval_batch_size)
+        return self.get_dataloader("val", batch_size=self.hparams.eval_batch_size, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return self.get_dataloader("test", batch_size=self.hparams.eval_batch_size)
+        return self.get_dataloader("test", batch_size=self.hparams.eval_batch_size, shuffle=False)
 
     @staticmethod
     def add_model_specific_args(parser, root_dir):
@@ -420,28 +435,28 @@ class SummarizationModule(BaseTransformer):
             default=1024,
             type=int,
             help="The maximum total input sequence length after tokenization. Sequences longer "
-            "than this will be truncated, sequences shorter will be padded.",
+                 "than this will be truncated, sequences shorter will be padded.",
         )
         parser.add_argument(
             "--max_target_length",
             default=56,
             type=int,
             help="The maximum total input sequence length after tokenization. Sequences longer "
-            "than this will be truncated, sequences shorter will be padded.",
+                 "than this will be truncated, sequences shorter will be padded.",
         )
         parser.add_argument(
             "--val_max_target_length",
             default=142,  # these defaults are optimized for CNNDM. For xsum, see README.md.
             type=int,
             help="The maximum total input sequence length after tokenization. Sequences longer "
-            "than this will be truncated, sequences shorter will be padded.",
+                 "than this will be truncated, sequences shorter will be padded.",
         )
         parser.add_argument(
             "--test_max_target_length",
             default=142,
             type=int,
             help="The maximum total input sequence length after tokenization. Sequences longer "
-            "than this will be truncated, sequences shorter will be padded.",
+                 "than this will be truncated, sequences shorter will be padded.",
         )
         parser.add_argument("--freeze_encoder", action="store_true")
         parser.add_argument("--freeze_embeds", action="store_true")
@@ -460,7 +475,8 @@ class SummarizationModule(BaseTransformer):
         parser.add_argument("--tgt_lang", type=str, default="", required=False)
         parser.add_argument("--eval_beams", type=int, default=None, required=False)
         parser.add_argument(
-            "--val_metric", type=str, default=None, required=False, choices=["bleu", "rouge2", "loss", None]
+            "--val_metric", type=str, default=None, required=False,
+            choices=["bleu", "rouge2", "loss", "sari", "exact_match", None]
         )
         parser.add_argument("--eval_max_gen_length", type=int, default=None, help="never generate more than n tokens")
         parser.add_argument("--save_top_k", type=int, default=1, required=False, help="How many checkpoints to save")
@@ -487,7 +503,6 @@ class TranslationModule(SummarizationModule):
         self.dataset_kwargs["src_lang"] = hparams.src_lang
         self.dataset_kwargs["tgt_lang"] = hparams.tgt_lang
         # self.output_dir = hparams.output_dir
-
 
     @staticmethod
     def print_first_example_scores(evaluation_dict, num_examples):
@@ -552,9 +567,10 @@ class TranslationModule(SummarizationModule):
         torch.cuda.empty_cache()
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
-        
+
         def special_token(sen):
-            replace_dic = {"#10": "ú", "#11": "û", "#12": "ü", "#13": "ý", "#14": "þ", "#15": "ÿ", "#1": "À", "#2": "Á", "#3": "ñ", "#4": "ò", "#5": "õ", "#6": "ö", "#7": "÷", "#8": "ø", "#9": "ù"}
+            replace_dic = {"#10": "ú", "#11": "û", "#12": "ü", "#13": "ý", "#14": "þ", "#15": "ÿ", "#1": "À", "#2": "Á",
+                           "#3": "ñ", "#4": "ò", "#5": "õ", "#6": "ö", "#7": "÷", "#8": "ø", "#9": "ù"}
             for k, v in replace_dic.items():
                 sen = sen.replace(v, k)
             return sen
@@ -574,8 +590,9 @@ class TranslationModule(SummarizationModule):
             preds = [x.split("<\s>")[-1].strip() for x in preds]
             target = [x.split("<\s>")[-1].strip() for x in target]
 
-            with open("test_pred_res/" + str(self.output_dir).split("/")[-1] + "_test_preds.csv", 'w') as f, open("test_pred_res/" + str(self.output_dir).split("/")[-1] + "_preds.target", 'w') as semif:
-                csv_write = csv.writer(f, delimiter='\t', quoting=csv.QUOTE_NONE,  quotechar='') # , escapechar = ','
+            with open("test_pred_res/" + str(self.output_dir).split("/")[-1] + "_test_preds.csv", 'w') as f, open(
+                    "test_pred_res/" + str(self.output_dir).split("/")[-1] + "_preds.target", 'w') as semif:
+                csv_write = csv.writer(f, delimiter='\t', quoting=csv.QUOTE_NONE, quotechar='')  # , escapechar = ','
                 csv_write.writerow(["decomposition"])
                 for p in preds:
                     # p = p.replace('"', '').replace(",", "").strip()
@@ -593,6 +610,7 @@ class TranslationModule(SummarizationModule):
         generative_metrics = {
             k: np.array([x[k] for x in outputs]).mean() for k in self.metric_names + ["gen_time", "gen_len"]
         }
+        generative_metrics.update(**scores)
         metric_val = (
             generative_metrics[self.val_metric] if self.val_metric in generative_metrics else losses[self.val_metric]
         )
@@ -645,7 +663,8 @@ class TranslationModule(SummarizationModule):
         # evaluate using sequence matcher
         sequence_scorer = SequenceMatchScorer(remove_stop_words=False)
         match_ratio = sequence_scorer.get_match_scores(decompositions_str, golds_str, processing="base")
-        structural_match_ratio = sequence_scorer.get_match_scores(decompositions_str, golds_str, processing="structural")
+        structural_match_ratio = sequence_scorer.get_match_scores(decompositions_str, golds_str,
+                                                                  processing="structural")
 
         # evaluate using graph distances
         graph_scorer = GraphMatchScorer()
@@ -653,7 +672,8 @@ class TranslationModule(SummarizationModule):
         gold_graphs = [g.to_graph() for g in golds]
 
         ged_scores = graph_scorer.get_edit_distance_match_scores(decomposition_graphs, gold_graphs)
-        structural_ged_scores = graph_scorer.get_edit_distance_match_scores(decomposition_graphs, gold_graphs, structure_only=True)
+        structural_ged_scores = graph_scorer.get_edit_distance_match_scores(decomposition_graphs, gold_graphs,
+                                                                            structure_only=True)
         ged_plus_scores = get_ged_plus_scores(decomposition_graphs, gold_graphs, exclude_thr=5, num_processes=10)
 
         evaluation_dict = {
@@ -711,10 +731,10 @@ def main(args, model=None) -> SummarizationModule:
     model.tensorboard_writer = writer
     dataset = Path(args.data_dir).name
     if (
-        args.logger_name == "default"
-        or args.fast_dev_run
-        or str(args.output_dir).startswith("/tmp")
-        or str(args.output_dir).startswith("/var")
+            args.logger_name == "default"
+            or args.fast_dev_run
+            or str(args.output_dir).startswith("/tmp")
+            or str(args.output_dir).startswith("/var")
     ):
         logger = True  # don't pollute wandb logs unnecessarily
     elif args.logger_name == "wandb":
