@@ -35,4 +35,4 @@ seq2seq/finetune.sh里面 训练就--do_train 测试就--do_predict
 # 版本
 
 pytorch   1.0.0
-
+pytorch-lightning             1.0.6
